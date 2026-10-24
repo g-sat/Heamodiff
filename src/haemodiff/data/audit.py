@@ -10,6 +10,37 @@ import numpy as np
 from haemodiff.data.tracings import polygon_area, polygon_from_segments
 
 
+_COLUMN_ALIASES = {
+    "filename": "FileName",
+    "file": "FileName",
+    "ef": "EF",
+    "numberofframes": "NumberOfFrames",
+    "numframes": "NumberOfFrames",
+    "frameheight": "FrameHeight",
+    "framewidth": "FrameWidth",
+    "split": "Split",
+    "x1": "X1",
+    "y1": "Y1",
+    "x2": "X2",
+    "y2": "Y2",
+    "frame": "Frame",
+}
+
+
+def tracing_lookup_key(filename: str) -> str:
+    """Join key for FileList and VolumeTracings.
+
+    EchoNet lists ``0XABC`` in FileList and ``0XABC.avi`` in VolumeTracings.
+    """
+    name = Path(str(filename).strip().replace("\\", "/")).name
+    lower = name.lower()
+    for ext in (".avi", ".mp4", ".mov", ".mkv"):
+        if lower.endswith(ext):
+            name = name[: -len(ext)]
+            break
+    return name.lower()
+
+
 def _as_float(value: str) -> float | None:
     try:
         number = float(value)
@@ -20,46 +51,64 @@ def _as_float(value: str) -> float | None:
     return number
 
 
-def load_filelist(path: Path) -> list[dict]:
+def _read_table(path: Path) -> list[dict[str, str]]:
     with open(path, newline="", encoding="utf-8-sig") as handle:
-        reader = csv.DictReader(handle)
+        sample = handle.read(8192)
+        handle.seek(0)
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
+        except csv.Error:
+            dialect = csv.excel
+        reader = csv.DictReader(handle, dialect=dialect)
+        rename = {}
+        for field in reader.fieldnames or []:
+            compact = field.strip().lstrip("\ufeff").lower().replace(" ", "").replace("_", "")
+            rename[field] = _COLUMN_ALIASES.get(compact, field.strip())
         rows = []
         for raw in reader:
-            filename = (raw.get("FileName") or "").strip()
-            ef = _as_float((raw.get("EF") or "").strip())
-            n_frames = _as_float((raw.get("NumberOfFrames") or "").strip())
-            height = _as_float((raw.get("FrameHeight") or "112").strip()) or 112.0
-            width = _as_float((raw.get("FrameWidth") or "112").strip()) or 112.0
-            split = (raw.get("Split") or "").strip().upper()
             rows.append(
                 {
-                    "filename": filename,
-                    "ef": ef,
-                    "n_frames": None if n_frames is None else int(n_frames),
-                    "frame_height": int(height),
-                    "frame_width": int(width),
-                    "split": split,
+                    rename.get(key, key): ("" if value is None else value.strip())
+                    for key, value in raw.items()
+                    if key is not None
                 }
             )
     return rows
 
 
+def load_filelist(path: Path) -> list[dict]:
+    rows = []
+    for raw in _read_table(path):
+        filename = raw.get("FileName", "")
+        ef = _as_float(raw.get("EF", ""))
+        n_frames = _as_float(raw.get("NumberOfFrames", ""))
+        height = _as_float(raw.get("FrameHeight", "") or "112") or 112.0
+        width = _as_float(raw.get("FrameWidth", "") or "112") or 112.0
+        split = raw.get("Split", "").upper()
+        rows.append(
+            {
+                "filename": filename,
+                "ef": ef,
+                "n_frames": None if n_frames is None else int(n_frames),
+                "frame_height": int(height),
+                "frame_width": int(width),
+                "split": split,
+            }
+        )
+    return rows
+
+
 def load_tracing_groups(path: Path) -> dict[str, dict[int, np.ndarray]]:
     grouped: dict[str, dict[int, list[list[float]]]] = {}
-    with open(path, newline="", encoding="utf-8-sig") as handle:
-        reader = csv.DictReader(handle)
-        for raw in reader:
-            filename = (raw.get("FileName") or "").strip()
-            frame = _as_float((raw.get("Frame") or "").strip())
-            coords = [
-                _as_float((raw.get(key) or "").strip())
-                for key in ("X1", "Y1", "X2", "Y2")
-            ]
-            if not filename or frame is None or any(value is None for value in coords):
-                continue
-            grouped.setdefault(filename, {}).setdefault(int(frame), []).append(
-                [float(value) for value in coords]
-            )
+    for raw in _read_table(path):
+        filename = raw.get("FileName", "")
+        frame = _as_float(raw.get("Frame", ""))
+        coords = [_as_float(raw.get(key, "")) for key in ("X1", "Y1", "X2", "Y2")]
+        if not filename or frame is None or any(value is None for value in coords):
+            continue
+        grouped.setdefault(tracing_lookup_key(filename), {}).setdefault(int(frame), []).append(
+            [float(value) for value in coords]
+        )
     return {
         filename: {frame: np.asarray(segs, dtype=np.float64) for frame, segs in frames.items()}
         for filename, frames in grouped.items()
@@ -141,7 +190,7 @@ def build_index(root: Path, clip_len: int = 16, min_frames: int = 8, size: int =
     records = []
     for row in studies:
         path = resolve_video_path(root, row["filename"])
-        groups = tracings.get(row["filename"], {})
+        groups = tracings.get(tracing_lookup_key(row["filename"]), {})
         src_hw = (row["frame_height"], row["frame_width"])
         areas = tracing_areas(groups, src_hw, (size, size))
         decision = classify_case(

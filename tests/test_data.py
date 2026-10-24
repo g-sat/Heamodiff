@@ -69,6 +69,27 @@ def test_audit_rules():
     assert degenerate["reason"] == "degenerate"
 
 
+def test_tracing_join_ignores_avi_suffix(tmp_path):
+    from haemodiff.data.audit import load_filelist, load_tracing_groups, tracing_lookup_key
+
+    (tmp_path / "FileList.csv").write_text(
+        "FileName,EF,ESV,EDV,FrameHeight,FrameWidth,FPS,NumberOfFrames,Split\n"
+        "0XABC,55,40,90,112,112,50,40,TRAIN\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "VolumeTracings.csv").write_text(
+        "FileName, X1, Y1, X2, Y2, Frame\n"
+        "0XABC.avi,10,10,40,10,3\n"
+        "0XABC.avi,10,20,40,20,12\n",
+        encoding="utf-8",
+    )
+    studies = load_filelist(tmp_path / "FileList.csv")
+    groups = load_tracing_groups(tmp_path / "VolumeTracings.csv")
+    assert studies[0]["filename"] == "0XABC"
+    assert tracing_lookup_key(studies[0]["filename"]) in groups
+    assert set(groups[tracing_lookup_key("0XABC")]) == {3, 12}
+
+
 def test_ratio_keeps_every_minority_row():
     from haemodiff.train.train_critic import majority_indices
 

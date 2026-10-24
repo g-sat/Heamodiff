@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import Dataset
 
 from haemodiff.data.clinical import normalize_clinical, sample_clinical
+from haemodiff.data.audit import tracing_lookup_key
 from haemodiff.data.tracings import (
     place_clip_masks,
     plan_window,
@@ -122,7 +123,7 @@ class EchoClipDataset(Dataset):
         }
 
     def _masks(self, row: dict, ed: int, es: int) -> tuple[np.ndarray, np.ndarray]:
-        groups = self.tracing_groups.get(row["filename"], {})
+        groups = self.tracing_groups.get(tracing_lookup_key(row["filename"]), {})
         src = (int(row["frame_height"]), int(row["frame_width"]))
         dst = (self.size, self.size)
         return _one_mask(groups.get(ed), src, dst), _one_mask(groups.get(es), src, dst)
