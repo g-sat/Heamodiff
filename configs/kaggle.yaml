@@ -1,0 +1,74 @@
+# Full-cohort Kaggle run. No step cap and no subset flag.
+run_id: haemodiff
+seed: 17
+require_gpu: true
+output_root: null
+
+data:
+  echonet_root: null
+  clip_len: 16
+  min_frames: 8
+  size: 112
+  severe_ef: 30
+  reduced_ef: 40
+
+model:
+  vae:
+    latent_channels: 4
+    base_channels: 32
+  dit:
+    hidden: 384
+    depth: 12
+    heads: 6
+    patch: 2
+    mlp_ratio: 4.0
+    dropout: 0.0
+  ef_net:
+    base_channels: 32
+  critic:
+    base_channels: 32
+
+diffusion:
+  timesteps: 1000
+  beta_start: 0.0001
+  beta_end: 0.02
+  sample_steps: 50
+  t_phys: 200
+
+phys:
+  warmup_steps: 1000
+  ramp_steps: 1000
+  max_weight: 0.1
+  patience: 50
+  ema_decay: 0.99
+  shares: [0.3333333333, 0.3333333333, 0.3333333334]
+
+optim:
+  lr: 0.0001
+  weight_decay: 0.0001
+  batch_size: null
+  num_workers: 2
+  log_every: 50
+
+train:
+  ef_epochs: 20
+  vae_epochs: 30
+  dit_epochs: 50
+  critic_epochs: 20
+  dp_epochs: 20
+  early_stop_patience: 5
+  vae_kl_weight: 0.000001
+
+privacy:
+  max_grad_norm: 1.0
+  noise_multiplier: 1.0
+
+utility:
+  ratios: ["natural", "1:1", "1:5", "1:10", "1:20"]
+  minority: severe
+
+conditionings:
+  - unconditional
+  - clinical
+  - mask
+  - full
