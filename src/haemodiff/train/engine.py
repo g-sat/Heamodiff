@@ -77,7 +77,7 @@ def make_loader(dataset, batch_size: int, shuffle: bool, num_workers: int) -> Da
     )
 
 
-def make_split_dataset(records, groups, cfg: dict, split: str, role: str) -> EchoClipDataset:
+def make_split_dataset(records, groups, cfg: dict, split: str, role: str, cover_annotation: bool = False) -> EchoClipDataset:
     data = cfg["data"]
     return EchoClipDataset(
         records,
@@ -91,6 +91,7 @@ def make_split_dataset(records, groups, cfg: dict, split: str, role: str) -> Ech
         window_seed=int(cfg["seed"]) + 17,
         severe_ef=float(data["severe_ef"]),
         reduced_ef=float(data["reduced_ef"]),
+        cover_annotation=cover_annotation,
     )
 
 

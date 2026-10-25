@@ -11,6 +11,7 @@ from torch.utils.data import Dataset
 from haemodiff.data.clinical import normalize_clinical, sample_clinical
 from haemodiff.data.audit import tracing_lookup_key
 from haemodiff.data.tracings import (
+    anchor_window,
     place_clip_masks,
     plan_window,
     polygon_from_segments,
@@ -44,6 +45,7 @@ class EchoClipDataset(Dataset):
         window_seed: int,
         severe_ef: float,
         reduced_ef: float,
+        cover_annotation: bool = False,
     ) -> None:
         if role not in {"dit", "critic"}:
             raise ValueError(role)
@@ -67,6 +69,7 @@ class EchoClipDataset(Dataset):
         self.window_seed = window_seed
         self.severe_ef = severe_ef
         self.reduced_ef = reduced_ef
+        self.cover_annotation = cover_annotation
         raw = sample_clinical(len(chosen), clinical_seed)
         order = np.random.default_rng(clinical_seed).permutation(len(chosen))
         self.clinical = normalize_clinical(raw[order])
@@ -89,6 +92,8 @@ class EchoClipDataset(Dataset):
             raise RuntimeError(
                 f"{row['filename']} is indexed for diffusion but ED/ES do not fit the decoded clip."
             )
+        if window is None and self.cover_annotation:
+            window = self._anchored_window(n_frames, ed, es, index)
         if window is None:
             if n_frames < self.min_frames:
                 raise RuntimeError(f"{row['filename']} became too short at decode time.")
@@ -102,7 +107,11 @@ class EchoClipDataset(Dataset):
             clip, pad = repeat_pad(source, self.clip_len)
             ed_index = int(window["ed_index"])
             es_index = int(window["es_index"])
-            ed_mask, es_mask = self._masks(row, int(ed), int(es))
+            if ed is None or es is None:
+                ed_mask = np.zeros((self.size, self.size), dtype=np.float32)
+                es_mask = np.zeros_like(ed_mask)
+            else:
+                ed_mask, es_mask = self._masks(row, int(ed), int(es))
         masks, valid = place_clip_masks(
             self.clip_len, self.size, self.size, ed_index, es_index, ed_mask, es_mask
         )
@@ -121,6 +130,21 @@ class EchoClipDataset(Dataset):
             "filename": row["filename"],
             "split": row["split"],
         }
+
+    def _anchored_window(self, n_frames: int, ed, es, index: int) -> dict | None:
+        if n_frames < self.min_frames:
+            return None
+        rng = np.random.default_rng(self.window_seed + index + 1)
+        anchors = [int(frame) for frame in (ed, es) if frame is not None and 0 <= int(frame) < n_frames]
+        anchor = int(anchors[int(rng.integers(0, len(anchors)))]) if anchors else int(rng.integers(0, n_frames))
+        placed = anchor_window(n_frames, anchor, self.clip_len, self.min_frames, rng)
+        if placed is None:
+            return None
+        start = int(placed["start"])
+        stop = start + int(placed["source_len"])
+        placed["ed_index"] = int(ed) - start if ed is not None and start <= int(ed) < stop else -1
+        placed["es_index"] = int(es) - start if es is not None and start <= int(es) < stop else -1
+        return placed
 
     def _masks(self, row: dict, ed: int, es: int) -> tuple[np.ndarray, np.ndarray]:
         groups = self.tracing_groups.get(tracing_lookup_key(row["filename"]), {})

@@ -152,8 +152,9 @@ class PhysiologyBalancer:
 
 
 def masked_bce(logits: torch.Tensor, target: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
+    """Mean BCE on valid frames. The denominator counts pixels, not frames."""
     weights = valid.view(valid.shape[0], valid.shape[1], 1, 1, 1)
     if float(weights.sum()) == 0:
         return logits.new_zeros(())
     loss = F.binary_cross_entropy_with_logits(logits, target, reduction="none")
-    return (loss * weights).sum() / weights.sum().clamp_min(1.0)
+    return (loss * weights).sum() / weights.expand_as(loss).sum().clamp_min(1.0)

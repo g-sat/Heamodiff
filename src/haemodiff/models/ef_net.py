@@ -25,6 +25,11 @@ class EFNet(nn.Module):
             nn.SiLU(),
         )
         self.pool = nn.AdaptiveAvgPool2d(1)
+        self.temporal = nn.Sequential(
+            nn.Conv1d(c * 2, c * 2, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.Conv1d(c * 2, c * 2, kernel_size=3, padding=1),
+        )
         self.ef_head = nn.Linear(c * 2, 1)
         self.mask_head = nn.Sequential(
             nn.Conv2d(c * 2, c, 3, padding=1),
@@ -41,8 +46,9 @@ class EFNet(nn.Module):
         b, t, _, h, w = video.shape
         flat = video.reshape(b * t, 1, h, w)
         feat = self.trunk(flat)
-        pooled = self.pool(feat).reshape(b, t, -1).mean(dim=1)
-        ef = self.ef_head(pooled).squeeze(-1)
+        pooled = self.pool(feat).reshape(b, t, -1)
+        mixed = pooled + self.temporal(pooled.transpose(1, 2)).transpose(1, 2)
+        ef = self.ef_head(mixed.mean(dim=1)).squeeze(-1)
         mask_small = self.mask_head[0](feat)
         mask_small = self.mask_head[1](mask_small)
         mask = self.mask_head[2](mask_small)

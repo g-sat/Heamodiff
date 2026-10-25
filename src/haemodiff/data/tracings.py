@@ -130,6 +130,26 @@ def place_clip_masks(
     return masks, valid
 
 
+def anchor_window(
+    n_frames: int,
+    anchor: int,
+    clip_len: int = 16,
+    min_frames: int = 8,
+    rng: np.random.Generator | None = None,
+) -> dict | None:
+    """Contiguous clip that contains ``anchor``. Used when ED and ES cannot share 16 frames."""
+    if n_frames < min_frames or anchor < 0 or anchor >= n_frames:
+        return None
+    if n_frames <= clip_len:
+        return {"start": 0, "source_len": int(n_frames), "pad": int(clip_len - n_frames)}
+    lo = max(0, int(anchor) - clip_len + 1)
+    hi = min(int(anchor), n_frames - clip_len)
+    if lo > hi:
+        return None
+    start = int(lo if rng is None else rng.integers(lo, hi + 1))
+    return {"start": start, "source_len": clip_len, "pad": 0}
+
+
 def repeat_pad(frames: np.ndarray, clip_len: int) -> tuple[np.ndarray, np.ndarray]:
     """Tile frames up to ``clip_len``. The pad mask is true on tiles after the first copy."""
     source_len = int(frames.shape[0])

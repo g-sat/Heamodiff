@@ -25,6 +25,10 @@ model:
     dropout: 0.0
   ef_net:
     base_channels: 32
+    mask_weight: 10.0
+    batch_size: 8
+    lr: 0.0003
+    grad_clip: 1.0
   critic:
     base_channels: 32
 

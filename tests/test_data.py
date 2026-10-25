@@ -38,6 +38,29 @@ def test_raster_square_and_degenerate():
     assert empty.sum() == 0
 
 
+def test_anchor_window_contains_the_chosen_frame():
+    from haemodiff.data.tracings import anchor_window
+
+    placed = anchor_window(80, anchor=50, clip_len=16, rng=np.random.default_rng(0))
+    assert placed is not None
+    assert placed["start"] <= 50 < placed["start"] + placed["source_len"]
+    assert placed["source_len"] == 16
+
+
+def test_masked_bce_is_a_pixel_mean():
+    import math
+
+    import torch
+
+    from haemodiff.losses.physiology import masked_bce
+
+    logits = torch.zeros(1, 2, 1, 4, 4)
+    target = torch.zeros_like(logits)
+    valid = torch.tensor([[1.0, 0.0]])
+    loss = float(masked_bce(logits, target, valid))
+    assert abs(loss - math.log(2)) < 1e-4
+
+
 def test_window_contains_annotations_and_rejects_gaps():
     window = plan_window(40, ed=5, es=15, clip_len=16, rng=np.random.default_rng(0))
     assert window is not None
